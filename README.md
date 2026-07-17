@@ -59,7 +59,7 @@ public class BasicExample {
         // Create client
         OddSocketsConfig config = OddSocketsConfig.builder()
             .apiKey("ak_live_1234567890abcdef")
-            .managerUrl("https://manager1.oddsockets.tyga.network")
+            .managerUrl("https://connect.oddsockets.tyga.network")
             .userId("java-demo-user")
             .build();
 
@@ -311,7 +311,7 @@ OddSockets Java SDK delivers superior performance:
 # application.yml
 oddsockets:
   api-key: ak_live_1234567890abcdef
-  manager-url: https://manager1.oddsockets.tyga.network
+  manager-url: https://connect.oddsockets.tyga.network
   user-id: spring-boot-user
   auto-connect: true
   reconnect-attempts: 5

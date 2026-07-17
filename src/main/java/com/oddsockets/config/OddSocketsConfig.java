@@ -24,7 +24,7 @@ public class OddSocketsConfig {
     
     private OddSocketsConfig(Builder builder) {
         this.apiKey = builder.apiKey;
-        this.managerUrl = builder.managerUrl != null ? builder.managerUrl : "https://manager1.oddsockets.tyga.network";
+        this.managerUrl = builder.managerUrl != null ? builder.managerUrl : "https://connect.oddsockets.tyga.network";
         this.userId = builder.userId != null ? builder.userId : "user_" + UUID.randomUUID().toString().substring(0, 8);
         this.autoConnect = builder.autoConnect;
         this.reconnectAttempts = builder.reconnectAttempts;

@@ -16,7 +16,7 @@ import java.util.concurrent.CompletableFuture;
 public class ManagerDiscovery {
     
     private static final Logger logger = LoggerFactory.getLogger(ManagerDiscovery.class);
-    private static final String MANAGER_URL = "https://manager1.oddsockets.tyga.network";
+    private static final String MANAGER_URL = "https://connect.oddsockets.tyga.network";
     
     // Singleton instance
     private static final ManagerDiscovery INSTANCE = new ManagerDiscovery();
