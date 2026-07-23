@@ -25,11 +25,12 @@ public class EnhancedFeaturesExample {
         System.out.println("=".repeat(50));
         
         // Create and configure client
-        OddSocketsConfig config = new OddSocketsConfig();
-        config.setApiKey(API_KEY);
-        config.setUserId(USER_ID);
-        config.setAutoConnect(false);
-        
+        OddSocketsConfig config = OddSocketsConfig.builder()
+                .apiKey(API_KEY)
+                .userId(USER_ID)
+                .autoConnect(false)
+                .build();
+
         OddSockets client = new OddSockets(config);
         
         // Set up event listeners

@@ -1,0 +1,49 @@
+# OddSockets Java SDK - live PROOF
+#
+# Built and run straight from the SDK sources via demo/Dockerfile against the
+# LIVE OddSockets platform (manager connect.oddsockets.tyga.network, worker
+# [instance]). Transport is a genuine Socket.IO (Engine.IO v4) client
+# over WebSocket (org.java-websocket) hand-wired in WebSocketConnection.java -
+# no mocks, no simulated server responses, no local echo. API keys are redacted
+# below; everything else is the verbatim run.
+#
+#   docker build -f demo/Dockerfile -t oddsockets-java-demo .
+#   docker run --rm -e ODDSOCKETS_API_KEY=ak_your_key_here oddsockets-java-demo
+
+
+# ---- Single-client pub/sub round-trip -------------------------------------
+# Captured 2026-07-23. Subscribe -> publish -> receive our own nonce'd message
+# back through the worker. Process exit code: 0.
+
+Connecting to OddSockets...
+Connected.
+Worker: [instance]
+Using channel: demo-5165b01b-dc1
+Subscribed.
+Publishing message...
+Published message id: eadb7818-8470-4fdc-ad5d-7d62dba51f11
+OK - round-trip verified
+
+
+# ---- Enhanced-events two-client receive-path ------------------------------
+# Captured 2026-07-23.
+#   docker run --rm --entrypoint /usr/local/bin/enhanced \
+#     -e ODDSOCKETS_API_KEY=ak_your_key_here oddsockets-java-demo
+#
+# TWO independent clients (subscriber alice + publisher bob) on separate
+# connections, both in the same room. bob fires enhanced (Slack-like) actions;
+# because alice is on a SEPARATE connection, the broadcasts reaching alice's
+# public event stream (client.on("user_typing") / client.on("reaction_added"))
+# can only have travelled through the worker. Process exit code: 0.
+
+[connect] connecting both clients...
+[alice] worker [instance]
+[bob]   worker [instance]
+[connect] alice = CONNECTED, bob = CONNECTED
+[both] subscribed to enh-a2dffee1-a
+[bob] enhanced.startTyping(bob) ...
+[bob] published messageId=4e70d8c6-a0a3-4e66-8b39-359511096ff7, enhanced.addReaction :thumbsup: ...
+[alice] received 'user_typing' from bob (channel enh-a2dffee1-a) - broadcast round-trip.
+[alice] received 'reaction_added' (:thumbsup:) from bob - broadcast round-trip.
+
+OK - enhanced broadcast receive-path verified (user_typing + reaction_added)

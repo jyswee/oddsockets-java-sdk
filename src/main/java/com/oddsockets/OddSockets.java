@@ -1,8 +1,10 @@
 package com.oddsockets;
 
 import com.oddsockets.config.OddSocketsConfig;
-import com.oddsockets.model.Message;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,7 +50,11 @@ public class OddSockets {
     private final ScheduledExecutorService scheduler;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
+    private final Gson gson;
     private final ManagerDiscovery managerDiscovery;
+
+    /** Enhanced (Slack-like) feature surface: reactions, typing, threads, DMs, presence, notifications, search. */
+    public final EnhancedFeatures enhanced;
     
     private volatile String workerUrl;
     private volatile String workerId;
@@ -106,7 +112,9 @@ public class OddSockets {
             .connectTimeout(Duration.ofSeconds(10))
             .build();
         this.objectMapper = new ObjectMapper();
+        this.gson = new Gson();
         this.managerDiscovery = ManagerDiscovery.getInstance();
+        this.enhanced = new EnhancedFeatures(this);
         this.clientIdentifier = generateClientIdentifier();
         
         logger.info("OddSockets client initialized for user: {} with client identifier: {}", 
@@ -176,7 +184,7 @@ public class OddSockets {
         
         return CompletableFuture.runAsync(() -> {
             if (socket != null) {
-                socket.disconnect();
+                socket.close();
                 socket = null;
             }
             
@@ -344,6 +352,73 @@ public class OddSockets {
     WebSocketConnection getSocket() {
         return socket;
     }
+
+    /**
+     * Shared Gson instance used for enhanced event payloads.
+     *
+     * @return the Gson instance
+     */
+    public Gson getGson() {
+        return gson;
+    }
+
+    /**
+     * Emit a raw event to the worker over the Socket.IO connection.
+     *
+     * @param event the event name
+     * @param data  the payload (JsonElement, Map, or any Gson-serializable object)
+     */
+    public void emit(String event, Object data) {
+        if (socket == null) {
+            throw new IllegalStateException("Not connected to OddSockets");
+        }
+        socket.emit(event, toJsonElement(data));
+    }
+
+    /**
+     * Register a persistent listener for a raw worker event (e.g. an enhanced
+     * broadcast such as "user_typing" or "reaction_added"). The payload is
+     * delivered as a Gson JsonObject/JsonElement.
+     *
+     * @param event   the event name
+     * @param handler the listener
+     */
+    public void on(String event, Consumer<Object> handler) {
+        if (socket == null) {
+            throw new IllegalStateException("Not connected to OddSockets");
+        }
+        socket.on(event, el -> handler.accept(unwrap(el)));
+    }
+
+    /**
+     * Register a one-shot listener for a raw worker event.
+     *
+     * @param event   the event name
+     * @param handler the listener
+     */
+    public void once(String event, Consumer<Object> handler) {
+        if (socket == null) {
+            throw new IllegalStateException("Not connected to OddSockets");
+        }
+        socket.once(event, el -> handler.accept(unwrap(el)));
+    }
+
+    private JsonElement toJsonElement(Object data) {
+        if (data == null) {
+            return null;
+        }
+        if (data instanceof JsonElement) {
+            return (JsonElement) data;
+        }
+        return gson.toJsonTree(data);
+    }
+
+    private static Object unwrap(JsonElement el) {
+        if (el == null) {
+            return null;
+        }
+        return el.isJsonObject() ? el.getAsJsonObject() : el;
+    }
     
     /**
      * Close the client and release all resources
@@ -433,87 +508,50 @@ public class OddSockets {
         if (workerUrl == null) {
             throw new IllegalStateException("No worker URL available");
         }
-        
-        Map<String, Object> auth = Map.of(
-            "apiKey", config.getApiKey(),
-            "userId", config.getUserId() != null ? config.getUserId() : clientIdentifier
-        );
-        
-        // Create WebSocket connection (simplified implementation)
-        socket = new WebSocketConnection(workerUrl, auth);
-        
-        // Setup event handlers
+
+        String uid = config.getUserId() != null ? config.getUserId() : clientIdentifier;
+
+        // Create the real Socket.IO connection and wire handlers before connecting.
+        socket = new WebSocketConnection(workerUrl, config.getApiKey(), uid);
         setupSocketEventHandlers();
-        
-        // Connect with timeout
-        if (!socket.connect(15000)) {
-            throw new IOException("Connection timeout");
-        }
-        
+
+        // Connect (blocks until Socket.IO CONNECT ack or timeout).
+        socket.connect(15000);
+
         logger.info("Connected to worker: {}", workerUrl);
     }
-    
+
     /**
      * Internal: Setup socket event handlers
      */
     private void setupSocketEventHandlers() {
         if (socket == null) return;
-        
+
         // Handle disconnection
         socket.onDisconnect((reason) -> {
             connectionState.set(ConnectionState.DISCONNECTED);
             emitEvent(EventType.DISCONNECTED, reason);
-            
+
             // Auto-reconnect unless manually disconnected
             if (!"client_disconnect".equals(reason)) {
                 scheduleReconnect();
             }
         });
-        
+
         // Handle errors
-        socket.onError((error) -> {
-            emitEvent(EventType.ERROR, error);
-        });
-        
-        // Forward channel-related events to appropriate channels
-        socket.onMessage("message", (data) -> {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> messageData = (Map<String, Object>) data;
-            String channelName = (String) messageData.get("channel");
+        socket.onError((error) -> emitEvent(EventType.ERROR, error));
+
+        // Route incoming message broadcasts to the owning channel.
+        socket.on("message", (payload) -> {
+            if (payload == null || !payload.isJsonObject()) return;
+            JsonObject envelope = payload.getAsJsonObject();
+            String channelName = envelope.has("channel") ? envelope.get("channel").getAsString() : null;
+            if (channelName == null) return;
             Channel channel = channels.get(channelName);
             if (channel != null) {
-                channel.handleMessage(messageData);
+                channel.handleMessage(gson.fromJson(envelope, Map.class));
             }
         });
-        
-        // Handle other channel events
-        setupChannelEventHandlers();
-    }
-    
-    /**
-     * Internal: Setup channel event handlers
-     */
-    private void setupChannelEventHandlers() {
-        String[] events = {"subscribed", "unsubscribed", "published", "presence", "presence_change", "history"};
-        
-        for (String event : events) {
-            socket.onMessage(event, (data) -> {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> eventData = (Map<String, Object>) data;
-                String channelName = (String) eventData.get("channel");
-                Channel channel = channels.get(channelName);
-                if (channel != null) {
-                    switch (event) {
-                        case "subscribed" -> channel.handleSubscribed(eventData);
-                        case "unsubscribed" -> channel.handleUnsubscribed(eventData);
-                        case "published" -> channel.handlePublished(eventData);
-                        case "presence" -> channel.handlePresence(eventData);
-                        case "presence_change" -> channel.handlePresenceChange(eventData);
-                        case "history" -> channel.handleHistory(eventData);
-                    }
-                }
-            });
-        }
     }
     
     /**

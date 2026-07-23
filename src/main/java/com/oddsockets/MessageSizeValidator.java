@@ -68,7 +68,7 @@ public class MessageSizeValidator {
             
         } catch (Exception e) {
             if (e instanceof IllegalArgumentException) {
-                throw e; // Re-throw size validation errors
+                throw (IllegalArgumentException) e; // Re-throw size validation errors
             }
             
             logger.error("Error validating message size: {}", e.getMessage());
