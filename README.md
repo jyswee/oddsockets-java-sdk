@@ -9,10 +9,9 @@ Official Java SDK for OddSockets real-time messaging platform.
 ## Features
 
 - **Enterprise Ready**: Built for production with comprehensive error handling
-- **Spring Boot Integration**: Native Spring Boot starter and auto-configuration
-- **Reactive Streams**: Full support for Project Reactor and RxJava
-- **PubNub Compatible**: Drop-in replacement for PubNub Java SDK
-- **High Performance**: 50% lower latency than PubNub
+- **Spring Boot Friendly**: Drop the client into any Spring service as a bean
+- **Enhanced Surface**: Slack-like reactions, threads, typing, presence and more
+- **Low Latency**: Real-time delivery with automatic reconnection
 - **Cost Effective**: No per-message pricing, no message size limits
 - **Cloud Native**: Perfect for microservices and enterprise applications
 
@@ -32,16 +31,6 @@ Official Java SDK for OddSockets real-time messaging platform.
 
 ```gradle
 implementation 'com.oddsockets:oddsockets-java-sdk:0.1.0-beta.1'
-```
-
-### Spring Boot Starter
-
-```xml
-<dependency>
-    <groupId>com.oddsockets</groupId>
-    <artifactId>oddsockets-spring-boot-starter</artifactId>
-    <version>0.1.0-beta.1</version>
-</dependency>
 ```
 
 ## 🏃‍♂️ Quick Start
@@ -98,37 +87,6 @@ public class BasicExample {
 }
 ```
 
-### Reactive Streams (Project Reactor)
-
-```java
-import com.oddsockets.reactive.ReactiveOddSockets;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
-
-public class ReactiveExample {
-    public static void main(String[] args) {
-        ReactiveOddSockets client = ReactiveOddSockets.create(
-            OddSocketsConfig.builder()
-                .apiKey("ak_live_1234567890abcdef")
-                .build()
-        );
-
-        client.connect()
-            .then(client.channel("reactive-channel")
-                .subscribe(SubscribeOptions.builder()
-                    .enablePresence(true)
-                    .build()))
-            .thenMany(client.channel("reactive-channel")
-                .messages())
-            .doOnNext(message -> 
-                System.out.println("Received: " + message.getData()))
-            .take(10)
-            .then(client.disconnect())
-            .block();
-    }
-}
-```
-
 ### Spring Boot Integration
 
 ```java
@@ -155,63 +113,71 @@ public class MessageController {
 }
 ```
 
-### PubNub Migration
+## Enhanced Features
+
+Beyond core pub/sub, OddSockets ships a Slack-like **enhanced surface** — reactions,
+typing indicators, threads, read receipts, presence/status, notifications, DMs,
+channel management, message editing and search. It lives on `client.enhanced`.
+The pattern is always the same:
+
+1. **Send** an action with a `client.enhanced.*` method (camelCase).
+2. **Receive** the paired broadcast with `client.on("<event>", handler)`.
 
 ```java
-import com.oddsockets.pubnub.PubNub;
-import com.oddsockets.pubnub.PNConfiguration;
-import com.oddsockets.pubnub.callbacks.SubscribeCallback;
+import com.google.gson.JsonObject;
+import com.oddsockets.OddSockets;
+import com.oddsockets.config.OddSocketsConfig;
 
-public class PubNubMigration {
-    public static void main(String[] args) {
-        // Drop-in replacement for PubNub
-        PNConfiguration config = new PNConfiguration();
-        config.setPublishKey("ak_live_1234567890abcdef");
-        config.setSubscribeKey("ak_live_1234567890abcdef");
-        config.setUserId("user123");
+OddSockets client = new OddSockets(OddSocketsConfig.builder()
+    .apiKey("ak_live_1234567890abcdef")
+    .userId("alice")
+    .build());
+client.connect().get();
 
-        PubNub pubnub = new PubNub(config);
+// Receive-path: broadcasts from other users on the channel
+client.on("user_typing",    data -> System.out.println("user is typing"));
+client.on("reaction_added", data -> System.out.println("reaction added"));
+client.on("thread_reply",   data -> System.out.println("new thread reply"));
 
-        // Subscribe
-        pubnub.addListener(new SubscribeCallback() {
-            @Override
-            public void message(PubNub pubnub, PNMessageResult message) {
-                System.out.println("Message: " + message.getMessage());
-            }
-        });
-
-        pubnub.subscribe()
-            .channels(Arrays.asList("my-channel"))
-            .execute();
-
-        // Publish
-        pubnub.publish()
-            .channel("my-channel")
-            .message("Hello from Java!")
-            .async((result, status) -> {
-                System.out.println("Published: " + result.getTimetoken());
-            });
-    }
-}
+// Send-path: enhanced actions over the live socket
+client.enhanced.startTyping("alice", "room-42");
+client.enhanced.addReaction("msg-1", "room-42", ":thumbsup:", "alice", "Alice");
+client.enhanced.threadReply("room-42", "msg-1", "Replying in the thread", "alice", "Alice");
 ```
+
+Each area exposes methods on `client.enhanced`; the worker broadcasts the paired
+events which you handle with `client.on(...)`. Query methods (`get*`, `search*`)
+return a `CompletableFuture<JsonObject>` that completes with the worker response.
+
+| Area | Requests (`client.enhanced.*`) | Broadcast events (`client.on`) |
+|------|--------------------------------|--------------------------------|
+| Typing | `startTyping`, `stopTyping` | `user_typing`, `user_stopped_typing` |
+| Reactions | `addReaction`, `removeReaction`, `getReactions` | `reaction_added`, `reaction_removed` |
+| Threads | `threadReply`, `getThread`, `subscribeThread`, `followThread`, `markThreadRead` | `thread_reply`, `thread_subscribed`, `thread_followed`, `thread_read_updated` |
+| Read receipts | `markRead`, `markAllRead`, `getUnreadCounts` | `user_read`, `unread_count_updated`, `all_marked_read` |
+| Messages | `editMessage`, `deleteMessage`, `pinMessage`, `unpinMessage`, `getPinnedMessages`, `searchMessages` | `message_edited`, `message_deleted`, `message_pinned`, `message_unpinned` |
+| Presence & status | `setStatus`, `setCustomStatus`, `setDND`, `getUserPresence` | `user_status_changed`, `custom_status_updated`, `dnd_status_changed` |
+| Channels | `createChannel`, `updateChannel`, `archiveChannel`, `inviteToChannel`, `joinChannel`, `leaveChannel` | `channel_created`, `channel_updated`, `user_invited`, `user_joined_channel`, `user_left_channel` |
+| DMs | `createDM`, `sendDM`, `getDMConversations` | `dm_created`, `dm_received` |
+| Notifications | `subscribeNotifications`, `getNotifications`, `markNotificationRead`, `clearNotifications` | `notification`, `notification_read`, `notifications_cleared` |
+| Search | `searchMessages`, `searchInChannel`, `searchByUser`, `filterMessages` | (future results) |
+
+For any worker event not wrapped above, subscribe with the raw
+`client.on("<event>", handler)` API — all enhanced broadcasts are forwarded onto
+the client surface.
 
 ## Documentation
 
-- **[API Reference](docs/api-reference.md)** - Complete Javadoc documentation
-- **[Getting Started](docs/getting-started.md)** - Detailed setup guide
-- **[Spring Boot Guide](docs/spring-boot.md)** - Spring Boot integration
-- **[Migration Guide](docs/migration-guide.md)** - Migrate from PubNub
-- **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
+- **[SDK Documentation](https://docs.oddsockets.com/sdks/java)** - Guides and API overview
+- **[Javadoc](https://javadoc.io/doc/com.oddsockets/oddsockets-java-sdk)** - Full API reference
 
 ## Examples
 
-Explore our comprehensive examples:
+Explore the runnable examples:
 
-- **[Basic Usage](examples/basic/src/main/java/BasicExample.java)** - Simple messaging
-- **[Spring Boot](examples/spring-boot/)** - Complete Spring Boot application
-- **[Reactive Streams](examples/reactive/src/main/java/ReactiveExample.java)** - Project Reactor integration
-- **[PubNub Migration](examples/pubnub-migration/src/main/java/MigrationExample.java)** - Migration example
-- **[Microservices](examples/microservices/)** - Service-to-service messaging
+- **[Basic Usage](src/main/java/com/oddsockets/examples/BasicExample.java)** - Simple messaging
+- **[Enhanced Features](src/main/java/com/oddsockets/examples/EnhancedFeaturesExample.java)** - Reactions, threads, typing and more
+- **[Two-client demo](demo/EnhancedDemo.java)** - End-to-end enhanced broadcast regression
 
 ## Configuration
 
@@ -251,8 +217,6 @@ channel.publish(message, PublishOptions.builder()
 
 - Java 11+
 - Spring Boot 2.7+ / 3.x
-- Project Reactor 3.x
-- RxJava 3.x
 - Jakarta EE 9+
 
 ## Testing
@@ -291,10 +255,10 @@ channel.publish(message, PublishOptions.builder()
 
 OddSockets Java SDK delivers superior performance:
 
-- **50% lower latency** compared to PubNub
+- **Low latency** real-time delivery
 - **99.9% uptime** with automatic failover
 - **Unlimited message size** - no artificial limits
-- **High throughput** - handle millions of messages with reactive streams
+- **High throughput** - handle millions of messages with async pipelines
 
 ## Security
 
@@ -333,32 +297,6 @@ public class MessageService {
             // Handle system messages
             log.info("System message: {}", message.getData());
         });
-    }
-}
-```
-
-### Reactive Streams Integration
-
-```java
-@Service
-@RequiredArgsConstructor
-public class ReactiveMessageService {
-    
-    private final ReactiveOddSockets oddSockets;
-    
-    public Flux<Message> getMessages(String channelName) {
-        return oddSockets.channel(channelName)
-            .subscribe(SubscribeOptions.builder()
-                .enablePresence(true)
-                .build())
-            .thenMany(oddSockets.channel(channelName).messages());
-    }
-    
-    public Mono<PublishResult> publishMessage(String channelName, Object message) {
-        return oddSockets.channel(channelName)
-            .publish(message, PublishOptions.builder()
-                .storeInHistory(true)
-                .build());
     }
 }
 ```

@@ -692,6 +692,12 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a href="#enhanced" class="nav-link">
+                            <i class="fas fa-bolt nav-icon"></i>
+                            Enhanced Features
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a href="#performance" class="nav-link">
                             <i class="fas fa-chart-line nav-icon"></i>
                             Performance
@@ -1018,6 +1024,76 @@ channel.publish(message, publishOptions);</code></pre>
                         <p>Browse all available examples including Spring Boot integration, Android apps, and enterprise patterns</p>
                     </a>
                 </div>
+            </section>
+
+            <section id="enhanced" class="section">
+                <h2 class="section-title">
+                    <i class="fas fa-bolt"></i>
+                    Enhanced Features
+                </h2>
+
+                <p>Beyond core pub/sub, OddSockets ships a Slack-like <strong>enhanced surface</strong> &mdash;
+                reactions, typing indicators, threads, read receipts, presence/status, notifications, DMs,
+                channel management, message editing and search. It lives on <code>client.enhanced</code>.
+                The pattern is always the same: <strong>send</strong> an action with a
+                <code>client.enhanced.*</code> method, then <strong>receive</strong> the paired broadcast
+                with <code>client.on("&lt;event&gt;", handler)</code>.</p>
+
+                <h3 class="section-subtitle">Typing &amp; Reactions</h3>
+                <div class="code-container">
+                    <div class="code-header">
+                        <span class="code-lang">java</span>
+                        <button class="code-copy" onclick="copyCode(this)">
+                            <i class="fas fa-copy"></i>
+                            Copy
+                        </button>
+                    </div>
+                    <pre><code class="language-java">// Receive-path: broadcasts from other users on the channel
+client.on("user_typing",    data -&gt; System.out.println("user is typing"));
+client.on("reaction_added", data -&gt; System.out.println("reaction added"));
+
+// Send-path: enhanced actions over the live socket
+client.enhanced.startTyping("alice", "room-42");
+
+client.enhanced.addReaction("msg-1", "room-42", ":thumbsup:", "alice", "Alice");</code></pre>
+                </div>
+
+                <h3 class="section-subtitle">Threads</h3>
+                <div class="code-container">
+                    <div class="code-header">
+                        <span class="code-lang">java</span>
+                        <button class="code-copy" onclick="copyCode(this)">
+                            <i class="fas fa-copy"></i>
+                            Copy
+                        </button>
+                    </div>
+                    <pre><code class="language-java">client.on("thread_reply", data -&gt; System.out.println("new thread reply"));
+
+CompletableFuture&lt;JsonObject&gt; reply = client.enhanced.threadReply(
+    "room-42", "msg-1", "Replying in the thread", "alice", "Alice");
+System.out.println("thread reply: " + reply.get());</code></pre>
+                </div>
+
+                <h3 class="section-subtitle">Enhanced surface</h3>
+                <p>Each area exposes methods on <code>client.enhanced</code>; the worker broadcasts the
+                paired events which you handle with <code>client.on(...)</code>. Query methods
+                (<code>get*</code>, <code>search*</code>) return a
+                <code>CompletableFuture&lt;JsonObject&gt;</code> that completes with the worker response.</p>
+                <ul>
+                    <li><strong>Typing</strong> &mdash; <code>startTyping</code>, <code>stopTyping</code> &rarr; <code>user_typing</code>, <code>user_stopped_typing</code></li>
+                    <li><strong>Reactions</strong> &mdash; <code>addReaction</code>, <code>removeReaction</code>, <code>getReactions</code> &rarr; <code>reaction_added</code>, <code>reaction_removed</code></li>
+                    <li><strong>Threads</strong> &mdash; <code>threadReply</code>, <code>getThread</code>, <code>subscribeThread</code>, <code>followThread</code>, <code>markThreadRead</code> &rarr; <code>thread_reply</code>, <code>thread_subscribed</code>, <code>thread_followed</code>, <code>thread_read_updated</code></li>
+                    <li><strong>Read receipts</strong> &mdash; <code>markRead</code>, <code>markAllRead</code>, <code>getUnreadCounts</code> &rarr; <code>user_read</code>, <code>unread_count_updated</code>, <code>all_marked_read</code></li>
+                    <li><strong>Messages</strong> &mdash; <code>editMessage</code>, <code>deleteMessage</code>, <code>pinMessage</code>, <code>unpinMessage</code>, <code>getPinnedMessages</code>, <code>searchMessages</code> &rarr; <code>message_edited</code>, <code>message_deleted</code>, <code>message_pinned</code>, <code>message_unpinned</code></li>
+                    <li><strong>Presence &amp; status</strong> &mdash; <code>setStatus</code>, <code>setCustomStatus</code>, <code>setDND</code>, <code>getUserPresence</code> &rarr; <code>user_status_changed</code>, <code>custom_status_updated</code>, <code>dnd_status_changed</code></li>
+                    <li><strong>Channels</strong> &mdash; <code>createChannel</code>, <code>updateChannel</code>, <code>archiveChannel</code>, <code>inviteToChannel</code>, <code>joinChannel</code>, <code>leaveChannel</code> &rarr; <code>channel_created</code>, <code>channel_updated</code>, <code>user_invited</code>, <code>user_joined_channel</code>, <code>user_left_channel</code></li>
+                    <li><strong>DMs</strong> &mdash; <code>createDM</code>, <code>sendDM</code>, <code>getDMConversations</code> &rarr; <code>dm_created</code>, <code>dm_received</code></li>
+                    <li><strong>Notifications</strong> &mdash; <code>subscribeNotifications</code>, <code>getNotifications</code>, <code>markNotificationRead</code>, <code>clearNotifications</code> &rarr; <code>notification</code>, <code>notification_read</code>, <code>notifications_cleared</code></li>
+                    <li><strong>Search</strong> &mdash; <code>searchMessages</code>, <code>searchInChannel</code>, <code>searchByUser</code>, <code>filterMessages</code> &rarr; (future results)</li>
+                </ul>
+                <p>For any worker event not wrapped above, subscribe with the raw
+                <code>client.on("&lt;event&gt;", handler)</code> API &mdash; all enhanced broadcasts are
+                forwarded onto the client surface.</p>
             </section>
 
             <section id="performance" class="section">
