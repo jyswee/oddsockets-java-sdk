@@ -235,7 +235,16 @@ public class Channel {
                     data.addProperty("end", options.getEnd());
                 }
 
-                JsonObject resp = socket().request("get_history", data, "history", channelMatch(), REQUEST_TIMEOUT_MS);
+                // The worker emits "history" both as the explicit get_history
+                // RESPONSE (query:true) and as a fire-and-forget on-join snapshot
+                // (~10 msgs, no query flag). Gate resolution on query==true so the
+                // snapshot can't satisfy this request with the wrong data.
+                // BUG-2026-0727-0012.
+                Predicate<JsonObject> historyMatch = channelMatch().and(
+                        o -> o.has("query") && o.get("query").isJsonPrimitive()
+                                && o.getAsJsonPrimitive("query").isBoolean()
+                                && o.getAsJsonPrimitive("query").getAsBoolean());
+                JsonObject resp = socket().request("get_history", data, "history", historyMatch, REQUEST_TIMEOUT_MS);
 
                 List<Map<String, Object>> messages = new ArrayList<>();
                 if (resp.has("messages") && resp.get("messages").isJsonArray()) {
