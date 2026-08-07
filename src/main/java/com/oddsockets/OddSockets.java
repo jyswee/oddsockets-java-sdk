@@ -446,8 +446,8 @@ public class OddSockets {
      */
     private void getWorkerAssignment() throws Exception {
         try {
-            // Discover the optimal manager URL automatically
-            String managerUrl = managerDiscovery.discoverManagerUrl(config.getApiKey()).get();
+            // Use the manager this client was configured for, never a substitute
+            String managerUrl = managerDiscovery.discoverManagerUrl(config.getApiKey(), config.getManagerUrl()).get();
             
             String requestUrl = String.format("%s/api/cluster/select-worker?apiKey=%s&userId=%s&clientIdentifier=%s",
                 managerUrl,
@@ -493,9 +493,12 @@ public class OddSockets {
             logger.info("Worker assigned: {} at {}", workerId, workerUrl);
             
         } catch (Exception error) {
-            // If manager is offline, try fallback logic
-            if (error.getMessage().contains("Connection refused") || error.getMessage().contains("UnknownHost")) {
-                throw new IOException("Manager is offline. Cannot assign worker without session stickiness.");
+            // The configured manager is the only manager: report the failure rather
+            // than quietly connecting somewhere else.
+            String message = error.getMessage();
+            if (message != null && (message.contains("Connection refused") || message.contains("UnknownHost"))) {
+                throw new IOException("Manager " + config.getManagerUrl()
+                    + " is unreachable. Cannot assign worker without session stickiness.", error);
             }
             throw error;
         }

@@ -195,6 +195,19 @@ OddSocketsConfig config = OddSocketsConfig.builder()
     .build();
 ```
 
+### Manager URL
+
+The manager URL is resolved in this order:
+
+1. `managerUrl(...)` on the builder
+2. the `ODDSOCKETS_MANAGER_URL` environment variable
+3. `https://connect.oddsockets.tyga.network`
+
+It must be an absolute `http://` or `https://` URL, otherwise the build fails with
+`Invalid managerUrl: <value>`. Point it at a self-hosted or staging manager and the SDK
+will use that endpoint and nothing else: if it is unreachable the connection fails with
+the underlying error rather than falling back to the public endpoint.
+
 ### Channel Options
 
 ```java

@@ -1,5 +1,7 @@
 package com.oddsockets.config;
 
+import com.oddsockets.ManagerDiscovery;
+
 import java.time.Duration;
 import java.util.UUID;
 
@@ -24,7 +26,7 @@ public class OddSocketsConfig {
     
     private OddSocketsConfig(Builder builder) {
         this.apiKey = builder.apiKey;
-        this.managerUrl = builder.managerUrl != null ? builder.managerUrl : "https://connect.oddsockets.tyga.network";
+        this.managerUrl = ManagerDiscovery.resolveManagerUrl(builder.managerUrl);
         this.userId = builder.userId != null ? builder.userId : "user_" + UUID.randomUUID().toString().substring(0, 8);
         this.autoConnect = builder.autoConnect;
         this.reconnectAttempts = builder.reconnectAttempts;
@@ -42,8 +44,11 @@ public class OddSocketsConfig {
     }
     
     /**
-     * Gets the manager URL.
-     * 
+     * Gets the manager URL that this client will use.
+     *
+     * <p>This is the URL supplied to the builder, or the {@code ODDSOCKETS_MANAGER_URL}
+     * environment variable, or the public default endpoint - in that order.</p>
+     *
      * @return the manager URL
      */
     public String getManagerUrl() {
@@ -129,8 +134,13 @@ public class OddSocketsConfig {
         
         /**
          * Sets the manager URL (optional).
-         * 
-         * @param managerUrl the manager URL
+         *
+         * <p>When omitted, the {@code ODDSOCKETS_MANAGER_URL} environment variable is
+         * used, falling back to the public default endpoint. A URL set here is always
+         * used verbatim; the client never falls back to the default endpoint if it is
+         * unreachable.</p>
+         *
+         * @param managerUrl the manager URL, must be an absolute http(s) URL
          * @return this builder
          */
         public Builder managerUrl(String managerUrl) {
@@ -197,7 +207,7 @@ public class OddSocketsConfig {
          * Builds the configuration.
          * 
          * @return the configuration
-         * @throws IllegalArgumentException if API key is missing or invalid
+         * @throws IllegalArgumentException if the API key or manager URL is missing or invalid
          */
         public OddSocketsConfig build() {
             if (apiKey == null || apiKey.trim().isEmpty()) {
