@@ -1,10 +1,12 @@
 package com.oddsockets;
 
 import com.oddsockets.config.OddSocketsConfig;
+import com.oddsockets.config.OddSocketsToken;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,10 +17,13 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.security.MessageDigest;
 import java.time.Duration;
+import java.time.OffsetDateTime;
+import java.util.Base64;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -63,6 +68,13 @@ public class OddSockets {
     private volatile WebSocketConnection socket;
     private volatile int reconnectDelay = 1000; // Start with 1 second
     private static final int MAX_RECONNECT_ATTEMPTS = 5;
+
+    // Minted-token auth state (FEAT-2026-0824-0040). Populated only when a
+    // tokenProvider is configured instead of an API key.
+    private volatile String token;
+    private volatile long tokenExpiresAt; // epoch millis, 0 = unknown
+    private volatile ScheduledFuture<?> tokenRefreshFuture;
+    private final Object tokenLock = new Object();
     
     /**
      * Connection states for the client.
@@ -84,6 +96,8 @@ public class OddSockets {
         RECONNECTING,
         MAX_RECONNECT_ATTEMPTS_REACHED,
         WORKER_ASSIGNED,
+        /** Emitted when a minted realtime token is refreshed ahead of expiry (token auth only). (FEAT-2026-0824-0040) */
+        TOKEN_REFRESHED,
         ERROR
     }
     
@@ -98,10 +112,13 @@ public class OddSockets {
             throw new IllegalArgumentException("Configuration cannot be null");
         }
         
-        if (config.getApiKey() == null || config.getApiKey().trim().isEmpty()) {
-            throw new IllegalArgumentException("API key is required");
+        // Either an API key or a token provider must be present. Game clients
+        // using minted tokens have no ak_ key. (FEAT-2026-0824-0040)
+        if (config.getTokenProvider() == null
+                && (config.getApiKey() == null || config.getApiKey().trim().isEmpty())) {
+            throw new IllegalArgumentException("Either an API key or a token provider is required");
         }
-        
+
         this.config = config;
         this.connectionState = new AtomicReference<>(ConnectionState.DISCONNECTED);
         this.channels = new ConcurrentHashMap<>();
@@ -147,17 +164,28 @@ public class OddSockets {
         
         return CompletableFuture.runAsync(() -> {
             try {
+                // Step 0: In token mode, resolve a fresh minted token before every
+                // (re)connect so both the manager select-worker call and the worker
+                // handshake present a currently-valid token. (FEAT-2026-0824-0040)
+                if (isTokenMode()) {
+                    resolveToken();
+                }
+
                 // Step 1: Get worker assignment from manager
                 getWorkerAssignment();
-                
+
                 // Step 2: Connect to assigned worker
                 connectToWorker();
-                
+
                 connectionState.set(ConnectionState.CONNECTED);
                 reconnectAttempts.set(0);
                 reconnectDelay = 1000;
                 emitEvent(EventType.CONNECTED, null);
-                
+
+                if (isTokenMode()) {
+                    scheduleTokenRefresh();
+                }
+
                 logger.info("Successfully connected to OddSockets worker: {}", workerId);
                 
             } catch (Exception error) {
@@ -183,11 +211,18 @@ public class OddSockets {
         connectionState.set(ConnectionState.DISCONNECTED);
         
         return CompletableFuture.runAsync(() -> {
+            synchronized (tokenLock) {
+                if (tokenRefreshFuture != null) {
+                    tokenRefreshFuture.cancel(false);
+                    tokenRefreshFuture = null;
+                }
+            }
+
             if (socket != null) {
                 socket.close();
                 socket = null;
             }
-            
+
             workerUrl = null;
             workerId = null;
             emitEvent(EventType.DISCONNECTED, null);
@@ -447,13 +482,19 @@ public class OddSockets {
     private void getWorkerAssignment() throws Exception {
         try {
             // Use the manager this client was configured for, never a substitute
-            String managerUrl = managerDiscovery.discoverManagerUrl(config.getApiKey(), config.getManagerUrl()).get();
-            
-            String requestUrl = String.format("%s/api/cluster/select-worker?apiKey=%s&userId=%s&clientIdentifier=%s",
+            String discoverKey = config.getApiKey() != null ? config.getApiKey() : "";
+            String managerUrl = managerDiscovery.discoverManagerUrl(discoverKey, config.getManagerUrl()).get();
+
+            // In token mode present the minted token instead of an API key.
+            String credentialParam = isTokenMode()
+                ? "token=" + urlEncode(token != null ? token : "")
+                : "apiKey=" + urlEncode(config.getApiKey());
+
+            String requestUrl = String.format("%s/api/cluster/select-worker?%s&userId=%s&clientIdentifier=%s",
                 managerUrl,
-                config.getApiKey(),
-                config.getUserId() != null ? config.getUserId() : clientIdentifier,
-                clientIdentifier
+                credentialParam,
+                urlEncode(config.getUserId() != null ? config.getUserId() : clientIdentifier),
+                urlEncode(clientIdentifier)
             );
             
             HttpRequest request = HttpRequest.newBuilder()
@@ -515,7 +556,11 @@ public class OddSockets {
         String uid = config.getUserId() != null ? config.getUserId() : clientIdentifier;
 
         // Create the real Socket.IO connection and wire handlers before connecting.
-        socket = new WebSocketConnection(workerUrl, config.getApiKey(), uid);
+        // In token mode the minted token is presented in the handshake instead of
+        // the API key. (FEAT-2026-0824-0040)
+        socket = isTokenMode()
+            ? new WebSocketConnection(workerUrl, null, token, uid)
+            : new WebSocketConnection(workerUrl, config.getApiKey(), uid);
         setupSocketEventHandlers();
 
         // Connect (blocks until Socket.IO CONNECT ack or timeout).
@@ -593,12 +638,153 @@ public class OddSockets {
     private String generateClientIdentifier() {
         try {
             String baseId = config.getUserId() != null ? config.getUserId() : "default";
-            String apiKeyHash = hashString(config.getApiKey());
+            // Token-mode clients have no API key; seed the hash with a stable
+            // placeholder so session stickiness still works. (FEAT-2026-0824-0040)
+            String seed = (config.getApiKey() != null && !config.getApiKey().isEmpty())
+                ? config.getApiKey() : "token-client";
+            String apiKeyHash = hashString(seed);
             return apiKeyHash + "_" + baseId;
         } catch (Exception e) {
             logger.warn("Error generating client identifier: {}", e.getMessage());
             return "client_" + System.currentTimeMillis();
         }
+    }
+
+    /**
+     * Whether this client authenticates with a minted token (via a configured
+     * tokenProvider) instead of an API key. (FEAT-2026-0824-0040)
+     */
+    private boolean isTokenMode() {
+        return config.getTokenProvider() != null;
+    }
+
+    /**
+     * Invoke the configured tokenProvider and cache the fresh token plus its
+     * computed expiry.
+     */
+    private void resolveToken() throws Exception {
+        OddSocketsToken tok = config.getTokenProvider().get().get();
+        if (tok == null || tok.getToken() == null || tok.getToken().isEmpty()) {
+            throw new IllegalStateException("tokenProvider returned an empty token");
+        }
+        synchronized (tokenLock) {
+            this.token = tok.getToken();
+            this.tokenExpiresAt = expiryFromToken(tok);
+        }
+    }
+
+    /**
+     * Schedule an ahead-of-expiry token refresh. Re-arms itself for each cycle.
+     */
+    private void scheduleTokenRefresh() {
+        long expiresAt;
+        synchronized (tokenLock) {
+            expiresAt = this.tokenExpiresAt;
+        }
+        if (expiresAt <= 0) {
+            return; // No expiry info; provider is called again on next reconnect.
+        }
+
+        long lead = config.getTokenRefreshLeadMs();
+        long delay = expiresAt - System.currentTimeMillis() - lead;
+        if (delay < 0) {
+            delay = 0;
+        }
+
+        synchronized (tokenLock) {
+            if (tokenRefreshFuture != null) {
+                tokenRefreshFuture.cancel(false);
+            }
+            tokenRefreshFuture = scheduler.schedule(() -> {
+                if (connectionState.get() != ConnectionState.CONNECTED) {
+                    return;
+                }
+                try {
+                    resolveToken();
+                    WebSocketConnection s = socket;
+                    if (s != null) {
+                        s.updateAuth(token); // Carried by the next reconnect handshake.
+                    }
+                    emitEvent(EventType.TOKEN_REFRESHED, Map.of(
+                        "expiresAt", tokenExpiresAt
+                    ));
+                    scheduleTokenRefresh(); // Re-arm for the next cycle.
+                } catch (Exception e) {
+                    logger.warn("Token refresh failed: {}", e.getMessage());
+                    emitEvent(EventType.ERROR, e);
+                }
+            }, delay, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /**
+     * Compute an epoch-millis expiry from a minted token, preferring explicit
+     * fields over decoding the JWT.
+     */
+    private long expiryFromToken(OddSocketsToken tok) {
+        if (tok.getExpiresAt() != null && !tok.getExpiresAt().isEmpty()) {
+            long ms = parseExpiresAt(tok.getExpiresAt());
+            if (ms > 0) {
+                return ms;
+            }
+        }
+        if (tok.getExp() != null && tok.getExp() > 0) {
+            return tok.getExp() * 1000L;
+        }
+        return expiryFromJwt(tok.getToken());
+    }
+
+    /**
+     * Parse an expiresAt value that may be epoch seconds, epoch millis, or ISO-8601.
+     *
+     * @return epoch millis, or 0 if unparseable
+     */
+    private long parseExpiresAt(String value) {
+        try {
+            long n = Long.parseLong(value.trim());
+            return n < 1_000_000_000_000L ? n * 1000L : n;
+        } catch (NumberFormatException ignored) {
+            // not numeric; try ISO-8601 below
+        }
+        try {
+            return OffsetDateTime.parse(value).toInstant().toEpochMilli();
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
+    /**
+     * Decode a JWT payload's {@code exp} claim (epoch seconds) into epoch millis.
+     *
+     * @return epoch millis, or 0 if the token has no decodable exp
+     */
+    private long expiryFromJwt(String jwt) {
+        try {
+            String[] parts = jwt.split("\\.");
+            if (parts.length < 2) {
+                return 0;
+            }
+            byte[] decoded = Base64.getUrlDecoder().decode(padBase64(parts[1]));
+            JsonObject payload = JsonParser.parseString(new String(decoded)).getAsJsonObject();
+            if (payload.has("exp") && payload.get("exp").isJsonPrimitive()) {
+                return payload.get("exp").getAsLong() * 1000L;
+            }
+        } catch (Exception ignored) {
+            // opaque/undecodable token: fall through to 0
+        }
+        return 0;
+    }
+
+    private static String padBase64(String s) {
+        int rem = s.length() % 4;
+        if (rem == 0) {
+            return s;
+        }
+        return s + "====".substring(rem);
+    }
+
+    private static String urlEncode(String s) {
+        return java.net.URLEncoder.encode(s, java.nio.charset.StandardCharsets.UTF_8);
     }
     
     /**

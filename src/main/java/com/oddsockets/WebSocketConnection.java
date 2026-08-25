@@ -42,7 +42,8 @@ public class WebSocketConnection {
     private static final Logger logger = LoggerFactory.getLogger(WebSocketConnection.class);
 
     private final String wsUrl;
-    private final String apiKey;
+    private volatile String apiKey;
+    private volatile String token;
     private final String userId;
     private final Gson gson = new Gson();
 
@@ -65,17 +66,43 @@ public class WebSocketConnection {
     }
 
     /**
-     * Create a new Socket.IO connection wrapper.
+     * Create a new Socket.IO connection wrapper (API-key auth).
      *
      * @param workerUrl the assigned worker base URL (http/https)
      * @param apiKey    the OddSockets API key (lands in handshake.auth)
      * @param userId    the connecting user id
      */
     public WebSocketConnection(String workerUrl, String apiKey, String userId) {
+        this(workerUrl, apiKey, null, userId);
+    }
+
+    /**
+     * Create a new Socket.IO connection wrapper supporting either API-key or
+     * minted-token auth. When {@code token} is non-null it is sent in the
+     * handshake instead of {@code apiKey}. (FEAT-2026-0824-0040)
+     *
+     * @param workerUrl the assigned worker base URL (http/https)
+     * @param apiKey    the OddSockets API key, or null in token mode
+     * @param token     the minted realtime token, or null in key mode
+     * @param userId    the connecting user id
+     */
+    public WebSocketConnection(String workerUrl, String apiKey, String token, String userId) {
         this.wsUrl = toSocketIoUrl(workerUrl);
         this.apiKey = apiKey;
+        this.token = token;
         this.userId = userId;
         logger.debug("Created Socket.IO connection for URL: {}", wsUrl);
+    }
+
+    /**
+     * Swap in a refreshed minted token. The new value is carried by the next
+     * (re)connect handshake; the current live connection is not torn down.
+     * (FEAT-2026-0824-0040)
+     *
+     * @param token the refreshed minted realtime token
+     */
+    public void updateAuth(String token) {
+        this.token = token;
     }
 
     static String toSocketIoUrl(String workerUrl) {
@@ -151,7 +178,12 @@ public class WebSocketConnection {
         switch (type) {
             case '0' -> { // Engine.IO OPEN -> send Socket.IO CONNECT with auth
                 JsonObject auth = new JsonObject();
-                auth.addProperty("apiKey", apiKey);
+                String tok = token;
+                if (tok != null && !tok.isEmpty()) {
+                    auth.addProperty("token", tok);
+                } else {
+                    auth.addProperty("apiKey", apiKey);
+                }
                 auth.addProperty("userId", userId);
                 writeRaw("40" + gson.toJson(auth));
             }

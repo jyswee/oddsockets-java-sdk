@@ -185,7 +185,9 @@ Explore the runnable examples:
 
 ```java
 OddSocketsConfig config = OddSocketsConfig.builder()
-    .apiKey("your-api-key")                    // Required: Your OddSockets API key
+    .apiKey("your-api-key")                    // Required (unless tokenProvider set): API key
+    .tokenProvider(() -> future)               // Alternative to apiKey: async minted-token provider
+    .tokenRefreshLeadMs(120000)                // Optional: refresh lead time before token expiry
     .managerUrl("manager-url")                 // Optional: Manager URL
     .userId("user-id")                         // Optional: User identifier
     .autoConnect(true)                         // Optional: Auto-connect on creation
@@ -207,6 +209,41 @@ It must be an absolute `http://` or `https://` URL, otherwise the build fails wi
 `Invalid managerUrl: <value>`. Point it at a self-hosted or staging manager and the SDK
 will use that endpoint and nothing else: if it is unreachable the connection fails with
 the underlying error rather than falling back to the public endpoint.
+
+### Token auth for game clients (`tokenProvider`)
+
+Game and app clients that must not embed a long-lived API key can authenticate with
+short-lived minted tokens instead. Supply an async `tokenProvider` (a
+`Supplier<CompletableFuture<OddSocketsToken>>`) on the builder **instead of** `apiKey`.
+The SDK calls it before every (re)connect, sends the minted token in place of the API
+key, and refreshes the token ahead of its expiry — swapping the new credential into the
+live connection without a forced reconnect.
+
+```java
+OddSocketsConfig config = OddSocketsConfig.builder()
+    .tokenProvider(() -> CompletableFuture.supplyAsync(() -> {
+        // Exchange your player's session/JWT for a scoped realtime token via
+        // your backend or the OddSockets /v1/token front door.
+        MintedToken minted = myBackend.mintRealtimeToken();
+        OddSocketsToken token = new OddSocketsToken(minted.getToken());
+        token.setExpiresAt(minted.getExpiresAt()); // ISO-8601, optional
+        token.setExp(minted.getExp());             // epoch seconds, optional
+        return token;
+    }))
+    .tokenRefreshLeadMs(120000) // refresh 2 min before expiry (default)
+    .build();
+
+OddSockets client = new OddSockets(config);
+client.connect().get();
+
+client.on(EventType.TOKEN_REFRESHED, data ->
+    System.out.println("realtime token refreshed"));
+```
+
+`OddSocketsToken` carries the minted `token` (required) plus optional `expiresAt`
+(ISO-8601), `exp` (epoch seconds), `baseUrl`, and `identity`. Only `token` is required;
+the expiry fields let the SDK schedule an ahead-of-expiry refresh without decoding the
+JWT itself.
 
 ### Channel Options
 

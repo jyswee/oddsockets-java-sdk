@@ -4,6 +4,8 @@ import com.oddsockets.ManagerDiscovery;
 
 import java.time.Duration;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 
 /**
  * Configuration class for OddSockets client.
@@ -17,15 +19,19 @@ import java.util.UUID;
 public class OddSocketsConfig {
     
     private final String apiKey;
+    private final Supplier<CompletableFuture<OddSocketsToken>> tokenProvider;
+    private final long tokenRefreshLeadMs;
     private final String managerUrl;
     private final String userId;
     private final boolean autoConnect;
     private final int reconnectAttempts;
     private final Duration heartbeatInterval;
     private final Duration requestTimeout;
-    
+
     private OddSocketsConfig(Builder builder) {
         this.apiKey = builder.apiKey;
+        this.tokenProvider = builder.tokenProvider;
+        this.tokenRefreshLeadMs = builder.tokenRefreshLeadMs;
         this.managerUrl = ManagerDiscovery.resolveManagerUrl(builder.managerUrl);
         this.userId = builder.userId != null ? builder.userId : "user_" + UUID.randomUUID().toString().substring(0, 8);
         this.autoConnect = builder.autoConnect;
@@ -33,14 +39,35 @@ public class OddSocketsConfig {
         this.heartbeatInterval = builder.heartbeatInterval != null ? builder.heartbeatInterval : Duration.ofSeconds(30);
         this.requestTimeout = builder.requestTimeout != null ? builder.requestTimeout : Duration.ofSeconds(10);
     }
-    
+
     /**
      * Gets the API key.
-     * 
+     *
      * @return the API key
      */
     public String getApiKey() {
         return apiKey;
+    }
+
+    /**
+     * Gets the async token provider used instead of an API key by game clients
+     * that exchange a player JWT for a short-lived scoped token via the OddSockets
+     * {@code /v1/token} front door. Called before every (re)connect and again
+     * shortly before the token expires. (FEAT-2026-0824-0040)
+     *
+     * @return the token provider, or null when authenticating with an API key
+     */
+    public Supplier<CompletableFuture<OddSocketsToken>> getTokenProvider() {
+        return tokenProvider;
+    }
+
+    /**
+     * Gets how many milliseconds before expiry a minted token is refreshed.
+     *
+     * @return the refresh lead time in milliseconds
+     */
+    public long getTokenRefreshLeadMs() {
+        return tokenRefreshLeadMs;
     }
     
     /**
@@ -114,21 +141,48 @@ public class OddSocketsConfig {
      */
     public static class Builder {
         private String apiKey;
+        private Supplier<CompletableFuture<OddSocketsToken>> tokenProvider;
+        private long tokenRefreshLeadMs = 120000;
         private String managerUrl;
         private String userId;
         private boolean autoConnect = true;
         private int reconnectAttempts = 5;
         private Duration heartbeatInterval;
         private Duration requestTimeout;
-        
+
         /**
-         * Sets the API key (required).
-         * 
+         * Sets the API key (required unless a token provider is set).
+         *
          * @param apiKey the API key
          * @return this builder
          */
         public Builder apiKey(String apiKey) {
             this.apiKey = apiKey;
+            return this;
+        }
+
+        /**
+         * Sets an async token provider used instead of an API key. The supplier
+         * returns a {@link CompletableFuture} that resolves a fresh minted realtime
+         * token. (FEAT-2026-0824-0040)
+         *
+         * @param tokenProvider callback returning a fresh minted realtime token
+         * @return this builder
+         */
+        public Builder tokenProvider(Supplier<CompletableFuture<OddSocketsToken>> tokenProvider) {
+            this.tokenProvider = tokenProvider;
+            return this;
+        }
+
+        /**
+         * Sets how many milliseconds before expiry a minted token is refreshed
+         * (default: 120000).
+         *
+         * @param tokenRefreshLeadMs the refresh lead time in milliseconds
+         * @return this builder
+         */
+        public Builder tokenRefreshLeadMs(long tokenRefreshLeadMs) {
+            this.tokenRefreshLeadMs = tokenRefreshLeadMs;
             return this;
         }
         
@@ -210,14 +264,19 @@ public class OddSocketsConfig {
          * @throws IllegalArgumentException if the API key or manager URL is missing or invalid
          */
         public OddSocketsConfig build() {
-            if (apiKey == null || apiKey.trim().isEmpty()) {
-                throw new IllegalArgumentException("API key is required");
+            // Either an API key or a token provider is acceptable. A game client
+            // using minted tokens has no ak_ key, so the format check only applies
+            // in key mode. (FEAT-2026-0824-0040)
+            if (tokenProvider == null) {
+                if (apiKey == null || apiKey.trim().isEmpty()) {
+                    throw new IllegalArgumentException("Either an API key or a token provider is required");
+                }
+
+                if (!apiKey.startsWith("ak_")) {
+                    throw new IllegalArgumentException("Invalid API key format");
+                }
             }
-            
-            if (!apiKey.startsWith("ak_")) {
-                throw new IllegalArgumentException("Invalid API key format");
-            }
-            
+
             return new OddSocketsConfig(this);
         }
     }
