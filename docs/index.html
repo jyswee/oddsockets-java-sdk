@@ -698,6 +698,12 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a href="#challenges" class="nav-link">
+                            <i class="fas fa-trophy nav-icon"></i>
+                            Challenges &amp; Leaderboards
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a href="#performance" class="nav-link">
                             <i class="fas fa-chart-line nav-icon"></i>
                             Performance
@@ -1094,6 +1100,83 @@ System.out.println("thread reply: " + reply.get());</code></pre>
                 <p>For any worker event not wrapped above, subscribe with the raw
                 <code>client.on("&lt;event&gt;", handler)</code> API &mdash; all enhanced broadcasts are
                 forwarded onto the client surface.</p>
+            </section>
+
+            <section id="challenges" class="section">
+                <h2 class="section-title">
+                    <i class="fas fa-trophy"></i>
+                    Challenges &amp; Leaderboards
+                </h2>
+
+                <p>Challenges, leaderboards and achievements build on the same live socket. The send
+                side lives on the <strong>enhanced surface</strong> (<code>client.enhanced</code>);
+                request/query methods return a <code>CompletableFuture&lt;JsonObject&gt;</code> that
+                resolves with the worker's reply, while progress and achievement calls are
+                fire-and-forget. Inbound broadcasts arrive on the client event surface &mdash;
+                subscribe with the client's normal <code>client.on("&lt;event&gt;", handler)</code>.</p>
+
+                <h3 class="section-subtitle">Quick example</h3>
+                <div class="code-container">
+                    <div class="code-header">
+                        <span class="code-lang">java</span>
+                        <button class="code-copy" onclick="copyCode(this)">
+                            <i class="fas fa-copy"></i>
+                            Copy
+                        </button>
+                    </div>
+                    <pre><code class="language-java">client.enhanced.createChallenge(Map.of(
+    "challengeId", "weekly-sprint", "metric", "points", "ranked", true)).get();
+
+client.enhanced.reportProgress(Map.of("challengeId", "weekly-sprint", "value", 120));
+
+JsonObject board = client.enhanced.getStandings(
+    Map.of("challengeId", "weekly-sprint", "limit", 10)).get();
+
+client.enhanced.completeChallenge(
+    Map.of("challengeId", "weekly-sprint", "outcome", "completed")).get();</code></pre>
+                </div>
+
+                <h3 class="section-subtitle">Methods</h3>
+                <p>All methods live on <code>client.enhanced</code>. Request/query methods return a
+                <code>CompletableFuture&lt;JsonObject&gt;</code> that completes with the acked reply;
+                the fire-and-forget methods return <code>void</code>.</p>
+                <ul>
+                    <li><strong>createChallenge</strong> &mdash; create a challenge/leaderboard. Ack <code>challenge_create_success</code>.</li>
+                    <li><strong>reportProgress</strong> &mdash; fire-and-forget metric progress. (no ack)</li>
+                    <li><strong>completeChallenge</strong> &mdash; finalize with an outcome. Ack <code>challenge_complete_success</code>.</li>
+                    <li><strong>unlockAchievement</strong> &mdash; fire-and-forget; pass <code>percentComplete</code> (0&ndash;100). (no ack)</li>
+                    <li><strong>getStandings</strong> &mdash; request top-N + caller rank. Ack <code>challenge_standings_success</code>.</li>
+                    <li><strong>getAchievements</strong> &mdash; query achievement state. Ack <code>achievement_state</code>.</li>
+                    <li><strong>sendChallengeInvite</strong> &mdash; directed invite to another user. Ack <code>challenge_invite_success</code>.</li>
+                    <li><strong>replyChallengeInvite</strong> &mdash; accept/decline an invite. Ack <code>challenge_reply_success</code>.</li>
+                    <li><strong>cancelChallengeInvite</strong> &mdash; cancel a sent invite. Ack <code>challenge_invite_cancel_success</code>.</li>
+                    <li><strong>getChallengeInvites</strong> &mdash; list pending invites. Ack <code>challenge_invites</code>.</li>
+                </ul>
+
+                <h3 class="section-subtitle">Completion outcomes</h3>
+                <p>Pass one of these as the <code>outcome</code> to <code>completeChallenge</code>:</p>
+                <ul>
+                    <li><code>completed</code> &mdash; win (rank 1)</li>
+                    <li><code>failed</code> &mdash; loss</li>
+                    <li><code>tied</code> &mdash; draw</li>
+                    <li><code>conceded</code> &mdash; resign / concede</li>
+                    <li><code>expired</code> &mdash; timed out</li>
+                </ul>
+
+                <h3 class="section-subtitle">Progressive achievements</h3>
+                <p><code>unlockAchievement</code> always emits the wire event <code>achievement_unlock</code>;
+                the worker is authoritative and derives the outbound broadcast from
+                <code>percentComplete</code>: a value <code>&lt; 100</code> broadcasts
+                <code>achievement_progress</code> (status <code>in_progress</code>), while
+                <code>&gt;= 100</code> or an omitted value broadcasts <code>achievement_unlock</code>
+                (status <code>unlocked</code>). You never emit <code>achievement_progress</code> yourself.</p>
+
+                <h3 class="section-subtitle">Inbound events</h3>
+                <p>Subscribe with the client's normal <code>client.on("&lt;event&gt;", handler)</code>.</p>
+                <ul>
+                    <li><strong>Room broadcasts</strong> &mdash; <code>challenge_progress</code>, <code>leaderboard_rank_change</code>, <code>challenge_complete</code>, <code>achievement_unlock</code>, <code>achievement_progress</code></li>
+                    <li><strong>Directed (per-user)</strong> &mdash; <code>challenge_invited</code>, <code>challenge_reply_received</code>, <code>challenge_invite_cancelled</code></li>
+                </ul>
             </section>
 
             <section id="performance" class="section">
