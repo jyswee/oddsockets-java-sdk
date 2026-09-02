@@ -936,4 +936,245 @@ public class EnhancedFeatures {
 
         return future.orTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS);
     }
+
+    // ==================== CHALLENGE / LEADERBOARD / ACHIEVEMENT EVENTS ====================
+    //
+    // Request/ack methods below mirror getReactions: emit an event, resolve the
+    // returned future on a success ack, reject it on a server 'error' event whose
+    // 'event' field matches the emitted event. The worker also broadcasts inbound
+    // events (challenge_progress, leaderboard_rank_change, challenge_complete,
+    // achievement_unlock, achievement_progress, challenge_invited,
+    // challenge_reply_received, challenge_invite_cancelled) to other room members;
+    // subscribe with client.on("leaderboard_rank_change", handler), etc.
+    // See OddSockets.ENHANCED_BROADCAST_EVENTS.
+
+    /**
+     * Create a challenge. Resolves with the challenge_create_success ack.
+     *
+     * @param params challengeId, metric, ranked?, channel?, resultWebhookUrl?, standingsUrl?
+     */
+    public CompletableFuture<JsonObject> createChallenge(Map<String, Object> params) {
+        if (!client.isConnected()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Not connected to OddSockets"));
+        }
+
+        CompletableFuture<JsonObject> future = new CompletableFuture<>();
+
+        client.once("challenge_create_success", data -> future.complete((JsonObject) data));
+        client.once("error", data -> {
+            JsonObject error = (JsonObject) data;
+            if ("challenge_create".equals(error.get("event").getAsString())) {
+                future.completeExceptionally(new RuntimeException(error.get("message").getAsString()));
+            }
+        });
+
+        client.emit("challenge_create", client.getGson().toJsonTree(params));
+
+        return future.orTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Report progress toward a challenge. Fire-and-forget.
+     *
+     * @param params challengeId, value, metric?, eventId?, cohort?, platform?, channel?
+     */
+    public void reportProgress(Map<String, Object> params) {
+        if (!client.isConnected()) {
+            throw new IllegalStateException("Not connected to OddSockets");
+        }
+
+        client.emit("challenge_progress", client.getGson().toJsonTree(params));
+    }
+
+    /**
+     * Complete a challenge. Resolves with the challenge_complete_success ack.
+     *
+     * @param params challengeId, outcome, eventId?, reward?
+     *               (outcome is one of completed, failed, expired, conceded, tied)
+     */
+    public CompletableFuture<JsonObject> completeChallenge(Map<String, Object> params) {
+        if (!client.isConnected()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Not connected to OddSockets"));
+        }
+
+        CompletableFuture<JsonObject> future = new CompletableFuture<>();
+
+        client.once("challenge_complete_success", data -> future.complete((JsonObject) data));
+        client.once("error", data -> {
+            JsonObject error = (JsonObject) data;
+            if ("challenge_complete".equals(error.get("event").getAsString())) {
+                future.completeExceptionally(new RuntimeException(error.get("message").getAsString()));
+            }
+        });
+
+        client.emit("challenge_complete", client.getGson().toJsonTree(params));
+
+        return future.orTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Unlock (or advance) an achievement. Fire-and-forget.
+     *
+     * @param params achievementId, name?, tier?, percentComplete?, challengeId?, channel?
+     *               (percentComplete &lt; 100 advances via achievement_progress; &gt;=100 or
+     *               omitted unlocks via achievement_unlock)
+     */
+    public void unlockAchievement(Map<String, Object> params) {
+        if (!client.isConnected()) {
+            throw new IllegalStateException("Not connected to OddSockets");
+        }
+
+        client.emit("achievement_unlock", client.getGson().toJsonTree(params));
+    }
+
+    /**
+     * Get leaderboard standings for a challenge. Resolves with the
+     * challenge_standings_success ack.
+     *
+     * @param params challengeId, limit?=20, offset?=0
+     */
+    public CompletableFuture<JsonObject> getStandings(Map<String, Object> params) {
+        if (!client.isConnected()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Not connected to OddSockets"));
+        }
+
+        CompletableFuture<JsonObject> future = new CompletableFuture<>();
+
+        client.once("challenge_standings_success", data -> future.complete((JsonObject) data));
+        client.once("error", data -> {
+            JsonObject error = (JsonObject) data;
+            if ("challenge_standings".equals(error.get("event").getAsString())) {
+                future.completeExceptionally(new RuntimeException(error.get("message").getAsString()));
+            }
+        });
+
+        client.emit("challenge_standings", client.getGson().toJsonTree(params));
+
+        return future.orTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Query achievement state. Resolves with the achievement_state ack.
+     *
+     * @param params achievementId? (omit to query all)
+     */
+    public CompletableFuture<JsonObject> getAchievements(Map<String, Object> params) {
+        if (!client.isConnected()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Not connected to OddSockets"));
+        }
+
+        CompletableFuture<JsonObject> future = new CompletableFuture<>();
+
+        client.once("achievement_state", data -> future.complete((JsonObject) data));
+        client.once("error", data -> {
+            JsonObject error = (JsonObject) data;
+            if ("achievement_query".equals(error.get("event").getAsString())) {
+                future.completeExceptionally(new RuntimeException(error.get("message").getAsString()));
+            }
+        });
+
+        client.emit("achievement_query", client.getGson().toJsonTree(params));
+
+        return future.orTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Send a directed challenge invite. Resolves with the challenge_invite_success ack.
+     *
+     * @param params toUserId, type?='match', payload?(&lt;=8KB), ttl?=300, channel?, inviteId?
+     */
+    public CompletableFuture<JsonObject> sendChallengeInvite(Map<String, Object> params) {
+        if (!client.isConnected()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Not connected to OddSockets"));
+        }
+
+        CompletableFuture<JsonObject> future = new CompletableFuture<>();
+
+        client.once("challenge_invite_success", data -> future.complete((JsonObject) data));
+        client.once("error", data -> {
+            JsonObject error = (JsonObject) data;
+            if ("challenge_invite".equals(error.get("event").getAsString())) {
+                future.completeExceptionally(new RuntimeException(error.get("message").getAsString()));
+            }
+        });
+
+        client.emit("challenge_invite", client.getGson().toJsonTree(params));
+
+        return future.orTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Reply to a challenge invite. Resolves with the challenge_reply_success ack.
+     *
+     * @param params inviteId, accept, reason?
+     */
+    public CompletableFuture<JsonObject> replyChallengeInvite(Map<String, Object> params) {
+        if (!client.isConnected()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Not connected to OddSockets"));
+        }
+
+        CompletableFuture<JsonObject> future = new CompletableFuture<>();
+
+        client.once("challenge_reply_success", data -> future.complete((JsonObject) data));
+        client.once("error", data -> {
+            JsonObject error = (JsonObject) data;
+            if ("challenge_reply".equals(error.get("event").getAsString())) {
+                future.completeExceptionally(new RuntimeException(error.get("message").getAsString()));
+            }
+        });
+
+        client.emit("challenge_reply", client.getGson().toJsonTree(params));
+
+        return future.orTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Cancel a pending challenge invite. Resolves with the
+     * challenge_invite_cancel_success ack.
+     *
+     * @param params inviteId
+     */
+    public CompletableFuture<JsonObject> cancelChallengeInvite(Map<String, Object> params) {
+        if (!client.isConnected()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Not connected to OddSockets"));
+        }
+
+        CompletableFuture<JsonObject> future = new CompletableFuture<>();
+
+        client.once("challenge_invite_cancel_success", data -> future.complete((JsonObject) data));
+        client.once("error", data -> {
+            JsonObject error = (JsonObject) data;
+            if ("challenge_invite_cancel".equals(error.get("event").getAsString())) {
+                future.completeExceptionally(new RuntimeException(error.get("message").getAsString()));
+            }
+        });
+
+        client.emit("challenge_invite_cancel", client.getGson().toJsonTree(params));
+
+        return future.orTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Query pending challenge invites for the current user. Resolves with the
+     * challenge_invites ack.
+     */
+    public CompletableFuture<JsonObject> getChallengeInvites() {
+        if (!client.isConnected()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Not connected to OddSockets"));
+        }
+
+        CompletableFuture<JsonObject> future = new CompletableFuture<>();
+
+        client.once("challenge_invites", data -> future.complete((JsonObject) data));
+        client.once("error", data -> {
+            JsonObject error = (JsonObject) data;
+            if ("challenge_invites_query".equals(error.get("event").getAsString())) {
+                future.completeExceptionally(new RuntimeException(error.get("message").getAsString()));
+            }
+        });
+
+        client.emit("challenge_invites_query", new JsonObject());
+
+        return future.orTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
 }

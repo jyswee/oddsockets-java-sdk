@@ -69,6 +69,23 @@ public class OddSockets {
     private volatile int reconnectDelay = 1000; // Start with 1 second
     private static final int MAX_RECONNECT_ATTEMPTS = 5;
 
+    /**
+     * Enhanced-feature broadcasts the worker fans out to other members of a room.
+     * These are delivered straight to app listeners registered via
+     * {@link #on(String, Consumer)} (the socket dispatches by event name), so this
+     * list is provided for discoverability/documentation rather than wiring. The
+     * request/response acks consumed by {@link EnhancedFeatures} methods are
+     * intentionally not in this list.
+     */
+    public static final List<String> ENHANCED_BROADCAST_EVENTS = List.of(
+        // reactions, presence, threads, messages
+        "reaction_added", "reaction_removed",
+        // challenge / leaderboard / achievement
+        "challenge_progress", "leaderboard_rank_change", "challenge_complete",
+        "achievement_unlock", "achievement_progress",
+        "challenge_invited", "challenge_reply_received", "challenge_invite_cancelled"
+    );
+
     // Minted-token auth state (FEAT-2026-0824-0040). Populated only when a
     // tokenProvider is configured instead of an API key.
     private volatile String token;
@@ -412,8 +429,9 @@ public class OddSockets {
 
     /**
      * Register a persistent listener for a raw worker event (e.g. an enhanced
-     * broadcast such as "user_typing" or "reaction_added"). The payload is
-     * delivered as a Gson JsonObject/JsonElement.
+     * broadcast such as "user_typing", "reaction_added", or a challenge broadcast
+     * like "leaderboard_rank_change" -- see {@link #ENHANCED_BROADCAST_EVENTS}).
+     * The payload is delivered as a Gson JsonObject/JsonElement.
      *
      * @param event   the event name
      * @param handler the listener

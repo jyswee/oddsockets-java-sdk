@@ -1,0 +1,13 @@
+# Two-client challenge-lifecycle regression, built straight from the SDK sources.
+#   docker build -f demo/Dockerfile.challenge -t oddsockets-java-challenge .
+#   docker run --rm -e ODDSOCKETS_API_KEY=... -e ODDSOCKETS_MANAGER_URL=... oddsockets-java-challenge
+FROM maven:3.9-eclipse-temurin-17
+
+WORKDIR /app
+COPY . .
+
+RUN mvn -q -DskipTests package \
+ && cp target/oddsockets-java-sdk-*-jar-with-dependencies.jar /app/sdk.jar \
+ && javac -cp /app/sdk.jar -d /app/demo/out demo/ChallengeDemo.java
+
+ENTRYPOINT ["java", "-cp", "/app/sdk.jar:/app/demo/out", "ChallengeDemo"]
