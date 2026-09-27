@@ -340,8 +340,80 @@ public class OddSockets {
     }
     
     /**
+     * Fetch this tenant's headline usage tiles (MAU / DAU / total messages /
+     * error-rate) for the account that owns the configured API key.
+     *
+     * <p>Server contract: {@code GET {managerUrl}/api/tenant/usage} with the
+     * {@code X-API-Key} header. Requires an API key — keyless/token-only clients
+     * have no owner key to scope by, so this throws for them.
+     *
+     * <p>HONESTY: any tile the server cannot compute yet comes back as null. This
+     * method preserves null verbatim (boxed {@link Long}/{@link Double}, never
+     * coerced to 0) so callers can render an em-dash instead of a fabricated zero.
+     *
+     * @return CompletableFuture with the usage statistics for the owning account
+     */
+    public CompletableFuture<UsageStats> getUsageStats() {
+        if (isTokenMode() || config.getApiKey() == null || config.getApiKey().trim().isEmpty()) {
+            return CompletableFuture.failedFuture(new IllegalStateException(
+                "getUsageStats requires an apiKey (keyless/token clients have no owner scope to query)"));
+        }
+
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // Discover the manager exactly as the select-worker call does.
+                String managerUrl = managerDiscovery.discoverManagerUrl(config.getApiKey(), config.getManagerUrl()).get();
+
+                HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(managerUrl + "/api/tenant/usage"))
+                    .header("X-API-Key", config.getApiKey())
+                    .header("User-Agent", "OddSockets-Java-SDK/1.0.0")
+                    .timeout(Duration.ofSeconds(10))
+                    .GET()
+                    .build();
+
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+                if (response.statusCode() != 200) {
+                    throw new IOException("Usage stats request failed with status: " + response.statusCode());
+                }
+
+                com.fasterxml.jackson.databind.JsonNode root = objectMapper.readTree(response.body());
+                com.fasterxml.jackson.databind.JsonNode tiles = root.path("tiles");
+
+                UsageStats stats = new UsageStats();
+                stats.setMau(readNullableLong(tiles, "mau"));
+                stats.setDau(readNullableLong(tiles, "dau"));
+                stats.setTotalMessages(readNullableLong(tiles, "totalMessages"));
+                stats.setErrorRate(readNullableDouble(tiles, "errorRate"));
+                stats.setOwnerScope(root.hasNonNull("ownerScope") ? root.get("ownerScope").asText() : null);
+                stats.setDetail(root.hasNonNull("detail") ? root.get("detail") : null);
+                stats.setTimestamp(root.hasNonNull("timestamp") ? root.get("timestamp").asText() : null);
+                return stats;
+
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to fetch usage stats", e);
+            }
+        });
+    }
+
+    // Reads a numeric tile as a boxed Long. A missing tile or an explicit JSON
+    // null returns null so it stays distinguishable from a real 0.
+    private static Long readNullableLong(com.fasterxml.jackson.databind.JsonNode tiles, String name) {
+        com.fasterxml.jackson.databind.JsonNode node = tiles.get(name);
+        return (node != null && node.isNumber()) ? node.asLong() : null;
+    }
+
+    // Reads a numeric tile as a boxed Double. A missing tile or an explicit JSON
+    // null returns null so it stays distinguishable from a real 0.
+    private static Double readNullableDouble(com.fasterxml.jackson.databind.JsonNode tiles, String name) {
+        com.fasterxml.jackson.databind.JsonNode node = tiles.get(name);
+        return (node != null && node.isNumber()) ? node.asDouble() : null;
+    }
+
+    /**
      * Add an event listener
-     * 
+     *
      * @param eventType the event type
      * @param listener the event listener
      */
@@ -848,6 +920,48 @@ public class OddSockets {
                 '}';
     }
     
+    /**
+     * Headline usage analytics for the account that owns the configured API key,
+     * as returned by {@code GET {managerUrl}/api/tenant/usage}.
+     *
+     * <p>HONESTY: each tile is a boxed nullable ({@link Long}/{@link Double}). Any
+     * tile the server cannot compute yet is preserved as {@code null} — never
+     * coerced to 0 — so callers can distinguish "unknown" from a real zero.
+     */
+    public static class UsageStats {
+        private Long mau;
+        private Long dau;
+        private Long totalMessages;
+        private Double errorRate;
+        private String ownerScope;
+        private Object detail;
+        private String timestamp;
+
+        public UsageStats() {}
+
+        /** @return monthly active users, or null if the server could not compute it */
+        public Long getMau() { return mau; }
+        public void setMau(Long mau) { this.mau = mau; }
+        /** @return daily active users, or null if the server could not compute it */
+        public Long getDau() { return dau; }
+        public void setDau(Long dau) { this.dau = dau; }
+        /** @return total messages, or null if the server could not compute it */
+        public Long getTotalMessages() { return totalMessages; }
+        public void setTotalMessages(Long totalMessages) { this.totalMessages = totalMessages; }
+        /** @return error rate, or null if the server could not compute it */
+        public Double getErrorRate() { return errorRate; }
+        public void setErrorRate(Double errorRate) { this.errorRate = errorRate; }
+        /** @return the owner scope the tiles are aggregated over */
+        public String getOwnerScope() { return ownerScope; }
+        public void setOwnerScope(String ownerScope) { this.ownerScope = ownerScope; }
+        /** @return optional additional detail returned by the server, or null */
+        public Object getDetail() { return detail; }
+        public void setDetail(Object detail) { this.detail = detail; }
+        /** @return the server-side timestamp for this snapshot */
+        public String getTimestamp() { return timestamp; }
+        public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
+    }
+
     /**
      * Worker information
      */
