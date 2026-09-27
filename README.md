@@ -12,7 +12,7 @@ Official Java SDK for OddSockets real-time messaging platform.
 - **Spring Boot Friendly**: Drop the client into any Spring service as a bean
 - **Enhanced Surface**: Slack-like reactions, threads, typing, presence and more
 - **Low Latency**: Real-time delivery with automatic reconnection
-- **Cost Effective**: No per-message pricing, no message size limits
+- **Cost Effective**: No per-message pricing — a monthly message allowance
 - **Cloud Native**: Perfect for microservices and enterprise applications
 
 ## 📦 Installation
@@ -303,12 +303,14 @@ channel.publish(message, PublishOptions.builder()
 
 ## Performance
 
-OddSockets Java SDK delivers superior performance:
+- **Automatic failover** - the cluster reroutes you if a node goes away, and the
+  SDK reconnects and resubscribes on your behalf
+- **No per-message pricing** - you buy a monthly message allowance, not individual sends
+- **32 KB maximum message size** - split anything larger, or publish a reference to it
+- **Non-blocking** - publishes return `CompletableFuture`, so they never block your caller
 
-- **Low latency** real-time delivery
-- **99.9% uptime** with automatic failover
-- **Unlimited message size** - no artificial limits
-- **High throughput** - handle millions of messages with async pipelines
+Uptime SLA is per plan (Pro 99.9%, Scale 99.95%, Enterprise 99.999%) — see
+[pricing](https://oddsockets.com/#pricing) for the current commitment.
 
 ## Security
 
@@ -390,7 +392,7 @@ OddSockets is available in multiple languages:
 - **[Swift SDK](../swift/)** - iOS native, Combine framework
 - **[Kotlin SDK](../kotlin/)** - Android native, coroutines support
 
-## Get a Free API Key
+## Get an API Key
 
 AI agents can sign up with a verified email in two steps — no dashboard, no human required.
 
@@ -410,15 +412,17 @@ curl -X POST https://oddsockets.com/api/agent-signup/verify \
 
 ## Plans
 
-| | Free | Starter | Pro |
-|---|---|---|---|
-| **Price** | $0/mo | $49.99/mo | $299/mo |
-| **MAU** | 100 | 1,000 | 50,000 |
-| **Concurrent connections** | 50 | 1,000 | Unlimited |
-| **Messages/day** | 10,000 | 4,320,000 | Unlimited |
-| **Messages/minute** | 100 | 3,000 | Unlimited |
-| **Channels** | 10 | Unlimited | Unlimited |
-| **Storage** | 100MB (24h) | 50GB (6 months) | Unlimited |
+No free tier — every plan starts with a 7-day free trial.
+
+| | Starter | Pro | Scale | Enterprise |
+|---|---|---|---|---|
+| **Price** | $29/mo | $99/mo | $299/mo | Contact sales |
+| **Messages/mo** | 5M | 25M | 100M | Unlimited |
+| **Peak connections** | 200 | 1,000 | 5,000 | Unlimited |
+| **MAU** | Unlimited | Unlimited | Unlimited | Unlimited |
+| **Extra messages** | $2.50/M | $1.60/M | $1.00/M | Included |
+
+Current pricing: [oddsockets.com/#pricing](https://oddsockets.com/#pricing).
 
 All limits are enforced in real time.
 

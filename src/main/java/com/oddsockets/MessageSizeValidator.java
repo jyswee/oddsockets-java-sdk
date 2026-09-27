@@ -10,7 +10,7 @@ import java.nio.charset.StandardCharsets;
  * Message size validation utility.
  * 
  * Validates message sizes against industry standard limits (32KB)
- * to match PubNub, Socket.IO, and other real-time messaging platforms.
+ * by the platform, enforced server-side.
  * 
  * This matches the JavaScript SDK pattern for consistency.
  */
@@ -19,7 +19,7 @@ public class MessageSizeValidator {
     private static final Logger logger = LoggerFactory.getLogger(MessageSizeValidator.class);
     
     /**
-     * Message size limits (industry standard - matches PubNub)
+     * Platform message size limit, enforced server-side
      */
     public static final int MAX_MESSAGE_SIZE = 32768; // 32KB in bytes
     public static final int MAX_MESSAGE_SIZE_KB = 32;
@@ -54,7 +54,7 @@ public class MessageSizeValidator {
             if (messageSize > MAX_MESSAGE_SIZE) {
                 String errorMessage = String.format(
                     "Message size (%dKB) exceeds maximum allowed size of %dKB. " +
-                    "This limit matches industry standards (PubNub, Socket.IO) for reliable real-time messaging.",
+                    "Split the payload, or publish a reference to it instead.",
                     Math.round(messageSize / 1024.0),
                     MAX_MESSAGE_SIZE_KB
                 );
