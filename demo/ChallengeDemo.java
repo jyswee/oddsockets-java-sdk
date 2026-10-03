@@ -71,8 +71,8 @@ public class ChallengeDemo {
         System.out.println("[connect] connecting alice + bob via manager " + managerUrl);
         OddSockets alice = connect(apiKey, managerUrl, "alice");
         OddSockets bob = connect(apiKey, managerUrl, "bob");
-        System.out.println("[alice] worker " + workerId(alice) + " state=" + alice.getState());
-        System.out.println("[bob]   worker " + workerId(bob) + " state=" + bob.getState());
+        System.out.println("[alice] state=" + alice.getState());
+        System.out.println("[bob]   state=" + bob.getState());
 
         // ---- cross-client latches / captures --------------------------------
         // Shared owner scope means concurrent runs may cross-fire; buffer every
@@ -300,8 +300,9 @@ public class ChallengeDemo {
                 bCancel == null ? "not received" : "ok");
 
         System.out.println("\n==== RESULT: " + pass + " passed, " + fail + " failed ====");
-        System.out.println("[alice] worker=" + workerId(alice) + "  [bob] worker=" + workerId(bob)
-                + (workerId(alice).equals(workerId(bob)) ? "  (same worker)" : "  (CROSS-WORKER)"));
+        System.out.println("cross_instance=" + (workerId(alice).equals(workerId(bob)) ? "no" : "yes")
+                + "  (alice and bob served by "
+                + (workerId(alice).equals(workerId(bob)) ? "the same instance" : "different instances") + ")");
         alice.close();
         bob.close();
         System.exit(fail == 0 ? 0 : 1);

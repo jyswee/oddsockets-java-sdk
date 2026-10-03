@@ -34,11 +34,6 @@ public class EnhancedDemo {
         return client;
     }
 
-    private static String workerId(OddSockets client) {
-        OddSockets.WorkerInfo info = client.getWorkerInfo();
-        return info != null ? info.getWorkerId() : "unknown";
-    }
-
     public static void main(String[] args) throws Exception {
         String apiKey = System.getenv("ODDSOCKETS_API_KEY");
         if (apiKey == null || apiKey.isBlank()) {
@@ -50,8 +45,6 @@ public class EnhancedDemo {
         OddSockets alice = connect(apiKey, "alice");
         OddSockets bob = connect(apiKey, "bob");
 
-        System.out.println("[alice] worker " + workerId(alice));
-        System.out.println("[bob]   worker " + workerId(bob));
         System.out.println("[connect] alice = " + alice.getState() + ", bob = " + bob.getState());
 
         String channelName = "enh-" + UUID.randomUUID().toString().substring(0, 10);

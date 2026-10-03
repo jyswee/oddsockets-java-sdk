@@ -203,7 +203,7 @@ public class OddSockets {
                     scheduleTokenRefresh();
                 }
 
-                logger.info("Successfully connected to OddSockets worker: {}", workerId);
+                logger.info("Successfully connected to OddSockets");
                 
             } catch (Exception error) {
                 connectionState.set(ConnectionState.DISCONNECTED);
@@ -621,7 +621,7 @@ public class OddSockets {
             
             emitEvent(EventType.WORKER_ASSIGNED, workerAssignedData);
             
-            logger.info("Worker assigned: {} at {}", workerId, workerUrl);
+            logger.info("Connection endpoint assigned: {}", workerUrl);
             
         } catch (Exception error) {
             // The configured manager is the only manager: report the failure rather
@@ -656,7 +656,7 @@ public class OddSockets {
         // Connect (blocks until Socket.IO CONNECT ack or timeout).
         socket.connect(15000);
 
-        logger.info("Connected to worker: {}", workerUrl);
+        logger.info("Connected via endpoint: {}", workerUrl);
     }
 
     /**

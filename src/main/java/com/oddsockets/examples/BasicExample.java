@@ -67,7 +67,7 @@ public class BasicExample {
         // Get worker information (demonstrates session stickiness)
         OddSockets.WorkerInfo workerInfo = client.getWorkerInfo();
         if (workerInfo != null) {
-            logger.info("Connected to worker: {} at {}", workerInfo.getWorkerId(), workerInfo.getWorkerUrl());
+            logger.info("Connected via endpoint: {}", workerInfo.getWorkerUrl());
         }
         
         logger.info("Client identifier for session stickiness: {}", client.getClientIdentifier());
@@ -216,8 +216,7 @@ public class BasicExample {
         client.on(OddSockets.EventType.WORKER_ASSIGNED, data -> {
             @SuppressWarnings("unchecked")
             Map<String, Object> workerData = (Map<String, Object>) data;
-            logger.info("🎯 Worker assigned: {} at {} (session stickiness enabled)", 
-                workerData.get("workerId"), 
+            logger.info("🎯 Connection endpoint assigned: {} (session stickiness enabled)",
                 workerData.get("workerUrl"));
             logger.debug("Manager URL: {}", workerData.get("managerUrl"));
             logger.debug("Client identifier: {}", workerData.get("clientIdentifier"));

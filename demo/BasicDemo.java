@@ -32,9 +32,6 @@ public class BasicDemo {
         client.connect().get(20, TimeUnit.SECONDS);
         System.out.println("Connected.");
 
-        OddSockets.WorkerInfo worker = client.getWorkerInfo();
-        System.out.println("Worker: " + (worker != null ? worker.getWorkerId() : "unknown"));
-
         String channelName = "demo-" + UUID.randomUUID().toString().substring(0, 12);
         System.out.println("Using channel: " + channelName);
 

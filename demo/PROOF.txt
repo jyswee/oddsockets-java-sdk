@@ -1,8 +1,8 @@
 # OddSockets Java SDK - live PROOF
 #
 # Built and run straight from the SDK sources via demo/Dockerfile against the
-# LIVE OddSockets platform (manager connect.oddsockets.tyga.network, worker
-# [instance]). Transport is a genuine Socket.IO (Engine.IO v4) client
+# LIVE OddSockets platform (manager connect.oddsockets.tyga.network).
+# Transport is a genuine Socket.IO (Engine.IO v4) client
 # over WebSocket (org.java-websocket) hand-wired in WebSocketConnection.java -
 # no mocks, no simulated server responses, no local echo. API keys are redacted
 # below; everything else is the verbatim run.
@@ -17,7 +17,6 @@
 
 Connecting to OddSockets...
 Connected.
-Worker: [instance]
 Using channel: demo-5165b01b-dc1
 Subscribed.
 Publishing message...
@@ -37,8 +36,6 @@ OK - round-trip verified
 # can only have travelled through the worker. Process exit code: 0.
 
 [connect] connecting both clients...
-[alice] worker [instance]
-[bob]   worker [instance]
 [connect] alice = CONNECTED, bob = CONNECTED
 [both] subscribed to enh-a2dffee1-a
 [bob] enhanced.startTyping(bob) ...
